@@ -1,6 +1,6 @@
 # Multi-Database Procedure Example
 
-This directory demonstrates the hierarchical procedure storage structure introduced in aul v0.5.0.
+This directory demonstrates the hierarchical procedure storage structure introduced in aul v0.6.0.
 
 ## Directory Structure
 
@@ -15,8 +15,14 @@ procedures/
 └── salesdb/                    # Application database
     ├── dbo/
     │   └── GetCustomer.sql     # salesdb.dbo.GetCustomer
-    └── reporting/
-        └── MonthlySales.sql    # salesdb.reporting.MonthlySales
+    ├── reporting/
+    │   └── MonthlySales.sql    # salesdb.reporting.MonthlySales
+    └── inventory/              # Complex stored procedures with DDL/DML
+        ├── InitializeDatabase.sql   # Creates tables and seed data
+        ├── PlaceOrder.sql           # Order processing with validation
+        ├── GetInventoryReport.sql   # Aggregations and CASE expressions
+        ├── GetCustomerStatement.sql # JOINs and subqueries
+        └── ProcessRefund.sql        # TRY/CATCH and transactions
 ```
 
 ## Procedure Resolution
@@ -49,6 +55,25 @@ The `MonthlySales` procedure demonstrates nested EXEC:
 ```sql
 -- When @ShowServerInfo = 1, this procedure calls dbo.GetServerInfo
 EXEC reporting.MonthlySales @Year = 2026, @Month = 1, @ShowServerInfo = 1
+```
+
+### Complex inventory procedures
+
+The `inventory` schema demonstrates real-world stored procedures with DDL/DML:
+
+```sql
+-- Initialize database schema and seed data
+EXEC inventory.InitializeDatabase
+
+-- Place an order (validates stock, credit, updates multiple tables)
+EXEC inventory.PlaceOrder @CustomerID = 1, @OrderID = 1001, 
+    @ProductIDs = '1', @Quantities = '2'
+
+-- Get inventory report with aggregations
+EXEC inventory.GetInventoryReport @IncludeLowStock = 1, @MinValue = 100
+
+-- Get customer statement with order history
+EXEC inventory.GetCustomerStatement @CustomerID = 1
 ```
 
 ## Hot Reload

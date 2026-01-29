@@ -7,7 +7,7 @@ AS
 BEGIN
     SELECT 
         'aul' AS ServerName,
-        '0.5.0' AS Version,
+        '0.6.0' AS Version,
         'T-SQL Runtime' AS Engine,
         GETDATE() AS CurrentTime
 END

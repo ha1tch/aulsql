@@ -1,4 +1,4 @@
-.PHONY: build test test-all clean install fmt lint
+.PHONY: build test test-all clean install fmt lint bench
 
 # CGO flags for SQLite with math functions enabled
 export CGO_ENABLED=1
@@ -24,10 +24,19 @@ test-all: test
 test-quick:
 	go test -v ./... -run "TestBasic" -count=1
 
+# Run benchmarks
+bench:
+	go test -bench=. -benchmem ./runtime/...
+
+# Run benchmarks with count for stability
+bench-stable:
+	go test -bench=. -benchmem -count=5 ./runtime/... | tee benchmark_results.txt
+
 # Clean build artifacts
 clean:
 	rm -f aul
 	rm -rf jit_cache/
+	rm -f benchmark_results.txt
 
 # Format code
 fmt:
@@ -62,6 +71,8 @@ help:
 	@echo "Testing:"
 	@echo "  make test             Run all tests"
 	@echo "  make test-quick       Quick smoke test"
+	@echo "  make bench            Run benchmarks"
+	@echo "  make bench-stable     Run benchmarks 5x for stable results"
 	@echo ""
 	@echo "Development:"
 	@echo "  make run              Run server with HTTP on port 8080"

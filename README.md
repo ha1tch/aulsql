@@ -2,10 +2,6 @@
 
 A multi-protocol database server with pluggable network protocols and JIT-compiled stored procedure execution.
 
-## STATUS: VERY BETA, USE AT YOUR OWN RISK
-
-## Many features still in being feverishly developed, may not work right away
-
 ## Overview
 
 aul is a database server that:
@@ -305,8 +301,7 @@ Key documents:
 
 ## License
 
-GPL v3.0
-https://github.com/ha1tch/aulsql/blob/main/LICENSE
+Apache 2.0 — See [LICENSE](LICENSE) for details.
 
 ## Author
 

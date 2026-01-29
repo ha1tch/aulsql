@@ -1,6 +1,6 @@
 # aul Documentation Index
 
-**Version:** 0.5.0  
+**Version:** 0.6.0  
 **Last updated:** January 2026
 
 ---
@@ -17,7 +17,8 @@
 | 006 | [Dialect Inventory](006-DIALECT_INVENTORY.md) | T-SQL function/feature translation by dialect | Reference |
 | 007 | [T-SQL Compatibility](007-TSQL_COMPATIBILITY.md) | Test results for T-SQL compatibility | v0.4.8 |
 | 008 | [Phase 3 Architecture](008-PHASE3_ARCHITECTURE.md) | Historical: Phase 3 design (storage, protocols) | Archive |
-| 009 | Annotations | Annotation system (`-- @aul:`), isolated table storage | Planned |
+| 009 | [Annotations](009-ANNOTATIONS.md) | Annotation system (`-- @aul:`), isolated table storage | Current |
+| 010 | [Benchmarks](010-BENCHMARKS.md) | Performance benchmarks and comparison methodology | Current |
 
 ---
 
@@ -31,8 +32,10 @@
             │              *** COMPLETE in v0.5.0 ***
             │
             ├── Phase 2:   002-PROCEDURE_STORAGE_AND_TRANSLATION (tenancy)
+            │              *** COMPLETE in v0.5.0 ***
             │
             ├── Phase 2.5: 009-ANNOTATIONS (annotation system, isolated tables)
+            │              *** COMPLETE in v0.6.0 ***
             │
             ├── Phase 3:   002-PROCEDURE_STORAGE_AND_TRANSLATION (delegation)
             │
@@ -64,8 +67,12 @@ Supporting:
 | Output parameters | ✓ Complete | 003 |
 | Hot reload | ✓ Complete | 003 |
 | Multi-tenancy | ✓ Complete | 002, 003 |
-| Annotation system | Planned | 003, 009 |
-| Isolated tables | Planned | 003, 009 |
+| Annotation system | ✓ Complete | 003, 009 |
+| Isolated tables | ✓ Complete | 003, 009 |
+| Query routing | ✓ Complete | 003 |
+| SELECT @var = col | ✓ Complete | — |
+| Transactions (COMMIT/ROLLBACK) | ✓ Complete | — |
+| Complex stored procedures (DDL/DML) | ✓ Complete | — |
 | Delegation optimisation | Planned | 002 |
 | PostgreSQL backend | Planned | 003 |
 | ACL hooks | Planned | 002 |
@@ -88,5 +95,5 @@ When making changes:
 
 1. Update the relevant document
 2. Update status in this index
-3. For new documents, assign next number (e.g., 009-*)
+3. For new documents, assign next number (e.g., 011-*)
 4. Keep version numbers synchronised with aul version

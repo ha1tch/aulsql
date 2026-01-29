@@ -305,7 +305,8 @@ Key documents:
 
 ## License
 
-Apache 2.0 — See [LICENSE](LICENSE) for details.
+GPL v3.0
+https://github.com/ha1tch/aulsql/blob/main/LICENSE
 
 ## Author
 

@@ -1,0 +1,10 @@
+{
+  "host": "localhost",
+  "port": 1433,
+  "user": "sa",
+  "password": "anything",
+  "database": "salesdb",
+  "encrypt": "disable",
+  "trust_server_cert": true,
+  "app_name": "aul-cli"
+}

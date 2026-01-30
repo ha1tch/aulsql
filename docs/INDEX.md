@@ -1,6 +1,6 @@
 # aul Documentation Index
 
-**Version:** 0.6.0  
+**Version:** 0.6.1  
 **Last updated:** January 2026
 
 ---
@@ -19,6 +19,7 @@
 | 008 | [Phase 3 Architecture](008-PHASE3_ARCHITECTURE.md) | Historical: Phase 3 design (storage, protocols) | Archive |
 | 009 | [Annotations](009-ANNOTATIONS.md) | Annotation system (`-- @aul:`), isolated table storage | Current |
 | 010 | [Benchmarks](010-BENCHMARKS.md) | Performance benchmarks and comparison methodology | Current |
+| 011 | [System Catalog](011-SYSTEM_CATALOG.md) | SQL Server-compatible system views (sys.tables, etc.) | Current |
 
 ---
 
@@ -95,5 +96,5 @@ When making changes:
 
 1. Update the relevant document
 2. Update status in this index
-3. For new documents, assign next number (e.g., 011-*)
+3. For new documents, assign next number (e.g., 012-*)
 4. Keep version numbers synchronised with aul version

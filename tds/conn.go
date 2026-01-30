@@ -22,6 +22,10 @@ type Conn struct {
 
 	// TLS connection (set after TLS handshake)
 	tlsConn *tls.Conn
+	
+	// Login-only encryption mode flag
+	// When true, TLS is only used for login and we revert to plaintext after
+	loginOnlyTLS bool
 
 	// Connection state
 	database    string
@@ -325,4 +329,41 @@ func (c *Conn) ResetPacketSequence() {
 	c.mu.Lock()
 	c.packetSeq = 1
 	c.mu.Unlock()
+}
+
+// SetLoginOnlyTLS marks this connection as using login-only encryption.
+func (c *Conn) SetLoginOnlyTLS(enabled bool) {
+	c.mu.Lock()
+	c.loginOnlyTLS = enabled
+	c.mu.Unlock()
+}
+
+// IsLoginOnlyTLS returns true if this connection uses login-only encryption.
+func (c *Conn) IsLoginOnlyTLS() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.loginOnlyTLS
+}
+
+// RevertToPlaintext switches from TLS back to plaintext mode.
+// This is used after login-only TLS where the LOGIN7 is encrypted but all
+// subsequent traffic (including LOGINACK) is plaintext per MS-TDS spec.
+func (c *Conn) RevertToPlaintext() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	
+	if c.tlsConn == nil {
+		return nil // Already plaintext
+	}
+	
+	// Switch reader/writer back to the raw network connection
+	// Don't close the TLS connection - just stop using it
+	c.reader = bufio.NewReaderSize(c.netConn, MaxPacketSize)
+	c.writer = bufio.NewWriterSize(c.netConn, MaxPacketSize)
+	
+	// Clear TLS connection reference
+	c.tlsConn = nil
+	c.loginOnlyTLS = false
+	
+	return nil
 }

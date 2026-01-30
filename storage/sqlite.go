@@ -11,6 +11,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
+	"github.com/ha1tch/aul/procedure"
 	"github.com/ha1tch/aul/runtime"
 )
 
@@ -24,6 +25,9 @@ type SQLiteStorage struct {
 
 	// Path to database file (":memory:" for in-memory)
 	path string
+
+	// System catalog for SQL Server compatibility
+	sysCatalog *SystemCatalog
 }
 
 // SQLiteConfig holds SQLite-specific configuration.
@@ -104,6 +108,7 @@ func NewSQLiteStorage(cfg SQLiteConfig) (*SQLiteStorage, error) {
 		db:           db,
 		transactions: make(map[string]*sql.Tx),
 		path:         cfg.Path,
+		sysCatalog:   NewSystemCatalog(nil), // Registry set later via SetRegistry
 	}, nil
 }
 
@@ -115,6 +120,11 @@ func NewInMemorySQLiteStorage() (*SQLiteStorage, error) {
 
 // Query executes a query and returns result sets.
 func (s *SQLiteStorage) Query(ctx context.Context, sqlStr string, args ...interface{}) ([]runtime.ResultSet, error) {
+	// Check for system catalog queries
+	if s.sysCatalog != nil && s.sysCatalog.IsSystemQuery(sqlStr) {
+		return s.sysCatalog.ExecuteSystemQuery(ctx, s, sqlStr)
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -361,6 +371,13 @@ func (s *SQLiteStorage) GetTx(txnID string) *sql.Tx {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.transactions[txnID]
+}
+
+// SetRegistry sets the procedure registry for system catalog queries.
+func (s *SQLiteStorage) SetRegistry(registry *procedure.Registry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sysCatalog = NewSystemCatalog(registry)
 }
 
 // scanResultSet scans rows into a ResultSet.

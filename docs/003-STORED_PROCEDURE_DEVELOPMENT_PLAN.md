@@ -1,6 +1,6 @@
 # Stored Procedure Development Plan
 
-**Version:** 0.6.0  
+**Version:** 0.6.1  
 **Status:** Development roadmap  
 **Last updated:** January 2026
 
@@ -10,7 +10,7 @@
 
 This document outlines the phased implementation plan for stored procedure support in aul, following the architecture defined in `PROCEDURE_STORAGE_AND_TRANSLATION.md`.
 
-### Current State (v0.6.0)
+### Current State (v0.6.1)
 
 | Component | Status |
 |-----------|--------|
@@ -253,7 +253,7 @@ tenancy:
 - [ ] All tests passing
 - [ ] Example: multi-tenant setup with overrides
 - [ ] Documentation updates
-- [ ] Version bump to 0.6.0
+- [ ] Version bump to 0.6.1
 
 ---
 
@@ -464,7 +464,7 @@ func (r *StorageRouter) Query(ctx context.Context, query string, args ...interfa
 - [x] E2E integration tests (`runtime/inventory_e2e_test.go`)
 - [x] SELECT @var = col pattern support
 - [x] Transaction tests (COMMIT/ROLLBACK)
-- [x] Version bump to 0.6.0
+- [x] Version bump to 0.6.1
 
 ---
 
@@ -574,7 +574,7 @@ func (r *StorageRouter) Query(ctx context.Context, query string, args ...interfa
 - [ ] PostgreSQL backend working
 - [ ] Delegation working for simple procedures
 - [ ] Documentation updates
-- [ ] Version bump to 0.7.0
+- [ ] Version bump to 0.6.1
 
 ---
 
@@ -875,8 +875,8 @@ func (r *Runtime) Execute(...) {
 |-------|----------|------------|---------|--------|
 | Phase 1: Core Infrastructure | 2-3 weeks | 2-3 weeks | 0.5.0 | ✓ Complete |
 | Phase 2: Multi-Tenancy | 2-3 weeks | 4-6 weeks | 0.5.0 | ✓ Complete |
-| Phase 2.5: Annotations & Isolated Tables | 1-2 weeks | 5-8 weeks | 0.6.0 | ✓ Complete |
-| Phase 3: Delegation | 3-4 weeks | 8-12 weeks | 0.7.0 | Planned |
+| Phase 2.5: Annotations & Isolated Tables | 1-2 weeks | 5-8 weeks | 0.6.1 | ✓ Complete |
+| Phase 3: Delegation | 3-4 weeks | 8-12 weeks | 0.6.1 | Planned |
 | Phase 4: JIT & Monitoring | 3-4 weeks | 11-16 weeks | 0.8.0 | Planned |
 | Phase 5: ACL & Hardening | 2 weeks | 13-18 weeks | 1.0.0-rc1 | Planned |
 

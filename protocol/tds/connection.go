@@ -30,6 +30,9 @@ type Connection struct {
 	// TLS configuration (nil means no TLS support)
 	tlsConfig *tls.Config
 
+	// TDS 8.0 strict mode flag - when true, TLS was done before PRELOGIN
+	isTDS8Strict bool
+
 	// Authentication callback (can be set by application)
 	Authenticator Authenticator
 
@@ -55,13 +58,19 @@ func (d DefaultAuthenticator) Authenticate(username, password, database string) 
 }
 
 // handshake performs the TDS connection handshake.
-// Flow: PRELOGIN → (optional TLS) → LOGIN7 → LOGINACK
+// Flow for TDS 7.x: PRELOGIN → (optional TLS wrapped in TDS) → LOGIN7 → LOGINACK
+// Flow for TDS 8.0 strict: (TLS already done) → PRELOGIN → LOGIN7 → LOGINACK
 func (c *Connection) handshake() error {
 	// Step 1: Read PRELOGIN
+	c.logger.Application().Debug("waiting for PRELOGIN", "spid", c.spid, "tds8_strict", c.isTDS8Strict)
+	
 	pktType, data, err := c.tdsConn.ReadPacket()
 	if err != nil {
 		return fmt.Errorf("reading prelogin: %w", err)
 	}
+	
+	c.logger.Application().Debug("received packet", "spid", c.spid, "type", pktType.String(), "len", len(data))
+	
 	if pktType != tds.PacketPrelogin {
 		return fmt.Errorf("expected PRELOGIN packet, got %s", pktType)
 	}
@@ -76,10 +85,21 @@ func (c *Connection) handshake() error {
 		"encryption", prelogin.Encryption,
 		"mars", prelogin.MARS,
 		"instance", prelogin.Instance,
+		"tds8_strict", c.isTDS8Strict,
 	)
 
 	// Step 2: Send PRELOGIN response
-	encryptResp := c.negotiateEncryption(prelogin.Encryption)
+	// In TDS 8.0 strict mode, encryption is already active, so we respond accordingly
+	var encryptResp uint8
+	if c.isTDS8Strict {
+		// TLS is already established, respond with EncryptOn
+		encryptResp = tds.EncryptOn
+	} else {
+		encryptResp = c.negotiateEncryption(prelogin.Encryption)
+	}
+	
+	c.logger.Application().Debug("sending PRELOGIN response", "spid", c.spid, "encrypt_resp", encryptResp)
+
 	preloginResp := &tds.PreloginResponse{
 		Version:    c.listener.serverVersion,
 		Encryption: encryptResp,
@@ -92,19 +112,60 @@ func (c *Connection) handshake() error {
 		return fmt.Errorf("sending prelogin response: %w", err)
 	}
 
-	// Step 3: If encryption was negotiated, perform TLS handshake
-	if encryptResp == tds.EncryptOn || encryptResp == tds.EncryptReq {
+	// Step 3: Handle TLS handshake if needed
+	if c.isTDS8Strict {
+		// TDS 8.0 strict mode - TLS already done before PRELOGIN
+		c.logger.Application().Debug("TDS 8.0 strict mode, TLS already complete", "spid", c.spid)
+	} else if encryptResp == tds.EncryptOn || encryptResp == tds.EncryptReq {
+		// Standard TDS 7.x TLS handshake (may be wrapped in TDS or raw)
+		c.logger.Application().Debug("starting TDS 7.x TLS handshake", "spid", c.spid)
 		if err := c.performTLSHandshake(); err != nil {
 			return fmt.Errorf("TLS handshake: %w", err)
 		}
 		c.logger.Application().Debug("TLS handshake completed", "spid", c.spid)
 	}
 
-	// Step 4: Read LOGIN7
+	// Step 4: Read LOGIN7 (or detect login-only TLS)
+	c.logger.Application().Debug("waiting for LOGIN7", "spid", c.spid)
+	
 	pktType, data, err = c.tdsConn.ReadPacket()
 	if err != nil {
 		return fmt.Errorf("reading login: %w", err)
 	}
+	
+	c.logger.Application().Debug("received packet after TLS", "spid", c.spid, "type", pktType.String(), "len", len(data))
+	
+	// Check for login-only encryption: client sends TLS in PRELOGIN even though we said EncryptOff
+	if pktType == tds.PacketPrelogin && len(data) > 0 && data[0] == 0x16 && c.tlsConfig != nil {
+		c.logger.Application().Debug("detected login-only TLS (ClientHello in PRELOGIN after EncryptOff)", "spid", c.spid)
+		
+		// Do TLS handshake with this data as the first ClientHello
+		if err := c.performTLSHandshakeWithInitialData(data); err != nil {
+			return fmt.Errorf("login-only TLS handshake: %w", err)
+		}
+		c.logger.Application().Debug("login-only TLS handshake completed", "spid", c.spid)
+		
+		// Mark this as login-only TLS so we revert to plaintext after login
+		c.tdsConn.SetLoginOnlyTLS(true)
+		
+		// Now read the actual LOGIN7 (encrypted via TLS)
+		pktType, data, err = c.tdsConn.ReadPacket()
+		if err != nil {
+			return fmt.Errorf("reading login after TLS: %w", err)
+		}
+		c.logger.Application().Debug("received packet after login-only TLS", "spid", c.spid, "type", pktType.String(), "len", len(data))
+		
+		// Per MS-TDS spec: "If login-only encryption was negotiated... then the first TDS packet 
+		// of the Login message MUST be encrypted using TLS/SSL... All other TDS packets sent or 
+		// received MUST be in plaintext."
+		// So we switch to plaintext IMMEDIATELY after reading LOGIN7, BEFORE sending LOGINACK.
+		c.logger.Application().Debug("login-only TLS: switching to plaintext after receiving LOGIN7", "spid", c.spid)
+		if err := c.tdsConn.RevertToPlaintext(); err != nil {
+			return fmt.Errorf("reverting to plaintext after login: %w", err)
+		}
+		c.logger.Application().Debug("login-only TLS: now in plaintext mode", "spid", c.spid)
+	}
+	
 	if pktType != tds.PacketLogin7 {
 		return fmt.Errorf("expected LOGIN7 packet, got %s", pktType)
 	}
@@ -169,31 +230,49 @@ func (c *Connection) handshake() error {
 
 // negotiateEncryption determines the encryption level based on client request and server config.
 func (c *Connection) negotiateEncryption(clientEncrypt uint8) uint8 {
+	c.logger.Application().Debug("negotiating encryption",
+		"spid", c.spid,
+		"client_requested", clientEncrypt,
+		"tls_configured", c.tlsConfig != nil,
+	)
+
 	// If we have TLS configured, we can support encryption
 	if c.tlsConfig != nil {
+		var resp uint8
 		switch clientEncrypt {
 		case tds.EncryptOff:
-			// Client doesn't want encryption, but we might require it
-			// For now, allow unencrypted if client requests it
-			return tds.EncryptOff
+			// Client doesn't want encryption - respect that
+			// Some clients (go-mssqldb with encrypt=disable) explicitly don't want TLS
+			resp = tds.EncryptOff
 		case tds.EncryptOn, tds.EncryptReq:
 			// Client wants/requires encryption, and we support it
-			return tds.EncryptOn
+			resp = tds.EncryptOn
 		default:
-			return tds.EncryptNotSup
+			resp = tds.EncryptNotSup
 		}
+		c.logger.Application().Debug("encryption negotiated (TLS available)",
+			"spid", c.spid,
+			"response", resp,
+		)
+		return resp
 	}
 
 	// No TLS configured - we don't support encryption
+	var resp uint8
 	switch clientEncrypt {
 	case tds.EncryptOff:
-		return tds.EncryptOff
+		resp = tds.EncryptOff
 	case tds.EncryptOn, tds.EncryptReq:
 		// Client requires encryption, but we don't support it
-		return tds.EncryptNotSup
+		resp = tds.EncryptNotSup
 	default:
-		return tds.EncryptNotSup
+		resp = tds.EncryptNotSup
 	}
+	c.logger.Application().Debug("encryption negotiated (no TLS)",
+		"spid", c.spid,
+		"response", resp,
+	)
+	return resp
 }
 
 // performTLSHandshake performs TLS handshake wrapped in TDS packets.
@@ -202,11 +281,37 @@ func (c *Connection) performTLSHandshake() error {
 		return fmt.Errorf("TLS not configured")
 	}
 
+	c.logger.Application().Debug("starting TDS-wrapped TLS handshake", "spid", c.spid)
+	
 	// Perform TDS-wrapped TLS handshake
 	if err := c.tdsConn.UpgradeToTLS(c.tlsConfig); err != nil {
+		c.logger.Application().Warn("TLS handshake failed", "spid", c.spid, "err", err)
 		return err
 	}
 
+	c.logger.Application().Debug("TDS-wrapped TLS handshake succeeded", "spid", c.spid)
+	return nil
+}
+
+// performTLSHandshakeWithInitialData performs TLS handshake when we already have the first TLS message.
+// This is used for "login-only encryption" where the client sends TLS even though we said EncryptOff.
+func (c *Connection) performTLSHandshakeWithInitialData(initialData []byte) error {
+	if c.tlsConfig == nil {
+		return fmt.Errorf("TLS not configured")
+	}
+
+	c.logger.Application().Debug("starting TLS handshake with initial data",
+		"spid", c.spid,
+		"initial_len", len(initialData),
+	)
+	
+	// Perform TDS-wrapped TLS handshake with pre-read data
+	if err := c.tdsConn.UpgradeToTLSWithInitialData(c.tlsConfig, initialData); err != nil {
+		c.logger.Application().Warn("TLS handshake with initial data failed", "spid", c.spid, "err", err)
+		return err
+	}
+
+	c.logger.Application().Debug("TLS handshake with initial data succeeded", "spid", c.spid)
 	return nil
 }
 
@@ -257,7 +362,19 @@ func (c *Connection) sendLoginAck() error {
 	// Send DONE
 	tw.WriteDone(tds.DoneFinal, 0, 0)
 
-	return c.tdsConn.WriteTokens(tw)
+	if err := c.tdsConn.WriteTokens(tw); err != nil {
+		return err
+	}
+	
+	// Ensure everything is flushed
+	if err := c.tdsConn.Flush(); err != nil {
+		return err
+	}
+	
+	// Note: For login-only TLS, we already reverted to plaintext after reading LOGIN7
+	// (per MS-TDS spec: only LOGIN7 is encrypted, LOGINACK is sent in plaintext)
+	
+	return nil
 }
 
 // sendLoginError sends a login failure response.

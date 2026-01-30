@@ -401,6 +401,10 @@ func (s *Server) initStorage() error {
 		if err != nil {
 			return err
 		}
+		// Wire up registry to storage for system catalog queries
+		if sqliteStorage, ok := s.storage.(*storage.SQLiteStorage); ok {
+			sqliteStorage.SetRegistry(s.registry)
+		}
 		s.logger.System().Info("SQLite storage initialised",
 			"path", s.config.StorageConfig.Options["path"],
 		)

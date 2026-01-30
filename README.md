@@ -308,3 +308,5 @@ https://github.com/ha1tch/aulsql/blob/main/LICENSE
 ## Author
 
 Copyright (c) 2026 haitch
+
+h@ual.fi

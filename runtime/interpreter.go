@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"database/sql"
+	"strings"
 
 	aulerrors "github.com/ha1tch/aul/pkg/errors"
 	"github.com/ha1tch/aul/pkg/log"
@@ -226,6 +227,33 @@ func (i *interpreter) ExecuteSQL(ctx context.Context, sqlStr string, execCtx *Ex
 		"sql_length", len(sqlStr),
 	)
 
+	// Check for system catalog queries - these are handled by the storage layer
+	// which intercepts sys.* queries and returns SQL Server-compatible metadata
+	normalizedSQL := strings.ToLower(strings.TrimSpace(sqlStr))
+	if strings.Contains(normalizedSQL, "sys.tables") ||
+		strings.Contains(normalizedSQL, "sys.procedures") ||
+		strings.Contains(normalizedSQL, "sys.schemas") ||
+		strings.Contains(normalizedSQL, "sys.objects") ||
+		strings.Contains(normalizedSQL, "sys.columns") ||
+		strings.Contains(normalizedSQL, "sys.types") ||
+		strings.Contains(normalizedSQL, "sys.databases") ||
+		strings.Contains(normalizedSQL, "information_schema.") {
+		// Route through storage layer which handles system catalog
+		results, err := storage.Query(ctx, sqlStr)
+		if err != nil {
+			return nil, aulerrors.Wrap(err, aulerrors.ErrCodeExecSQLError,
+				"SQL execution failed").
+				WithOp("interpreter.ExecuteSQL").
+				Err()
+		}
+
+		execResult := &ExecResult{}
+		for _, rs := range results {
+			execResult.ResultSets = append(execResult.ResultSets, rs)
+		}
+		return execResult, nil
+	}
+
 	// Get database connection from storage backend
 	// For tenant-aware storage, use the tenant's database
 	var db *sql.DB
@@ -251,6 +279,20 @@ func (i *interpreter) ExecuteSQL(ctx context.Context, sqlStr string, execCtx *Ex
 		dialect = mapDialect(i.config.DefaultDialect)
 	}
 	interp := tsqlruntime.NewInterpreter(db, dialect)
+
+	// Set database context for procedure resolution
+	if execCtx.Database != "" {
+		interp.SetDatabase(execCtx.Database)
+	}
+
+	// Set resolver for nested EXEC support
+	if i.registry != nil {
+		if execCtx.Tenant != "" {
+			interp.SetResolver(newTenantAwareResolver(i.registry, execCtx.Tenant))
+		} else {
+			interp.SetResolver(newRegistryResolver(i.registry))
+		}
+	}
 
 	// Set parameters
 	params := make(map[string]interface{})

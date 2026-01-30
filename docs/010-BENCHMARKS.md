@@ -1,6 +1,6 @@
 # aul Benchmark Results
 
-**Version:** 0.6.0  
+**Version:** 0.6.1  
 **Date:** January 2026  
 **Platform:** Linux, Intel Xeon Platinum 8581C @ 2.10GHz  
 **Backend:** SQLite (in-memory)

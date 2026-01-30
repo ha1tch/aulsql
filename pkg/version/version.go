@@ -1,6 +1,7 @@
 // Package version provides version information for aul.
 //
-// The version is kept in sync with the VERSION file at the repository root.
+// The version is read from the VERSION file at the repository root.
+// The Makefile copies VERSION to pkg/version/version.txt before building.
 package version
 
 import (

@@ -5,12 +5,16 @@ export CGO_ENABLED=1
 export CGO_CFLAGS=-DSQLITE_ENABLE_MATH_FUNCTIONS
 export CGO_LDFLAGS=-lm
 
+# Sync version file before build
+version-sync:
+	@cp VERSION pkg/version/version.txt
+
 # Build the CLI
-build:
+build: version-sync
 	go build -o aul ./cmd/aul
 
 # Install globally
-install:
+install: version-sync
 	go install ./cmd/aul
 
 # Run all tests

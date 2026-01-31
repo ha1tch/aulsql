@@ -10,13 +10,13 @@ import (
 	"time"
 
 	"github.com/ha1tch/aul/pkg/version"
-	"github.com/ha1tch/aul/protocol"
-	"github.com/ha1tch/aul/server"
+	"github.com/ha1tch/aul/pkg/protocol"
+	"github.com/ha1tch/aul/pkg/server"
 
 	// Protocol implementations (register via init())
-	_ "github.com/ha1tch/aul/protocol/http"
-	_ "github.com/ha1tch/aul/protocol/postgres"
-	_ "github.com/ha1tch/aul/protocol/tds"
+	_ "github.com/ha1tch/aul/pkg/protocol/http"
+	_ "github.com/ha1tch/aul/pkg/protocol/postgres"
+	_ "github.com/ha1tch/aul/pkg/protocol/tds"
 )
 
 func main() {
@@ -55,8 +55,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		storagePath = fs.String("storage-path", ":memory:", "Storage path (for sqlite: file path or :memory:)")
 
 		// Logging
-		logLevel  = fs.String("log-level", "info", "Log level (debug, info, warn, error)")
-		logFormat = fs.String("log-format", "text", "Log format (text, json)")
+		logLevel   = fs.String("log-level", "info", "Log level (debug, info, warn, error)")
+		logFormat  = fs.String("log-format", "text", "Log format (text, json)")
+		logQueries = fs.Bool("log-queries", false, "Log all SQL queries received")
+		logQueriesRewritten = fs.Bool("log-queries-rewritten", false, "Log queries after rewriting (before backend execution)")
 
 		// Help and version
 		showHelp     = fs.Bool("h", false, "Show help")
@@ -113,6 +115,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	cfg.ExecTimeout = *execTimeout
 	cfg.LogLevel = *logLevel
 	cfg.LogFormat = *logFormat
+	cfg.LogQueries = *logQueries
+	cfg.LogQueriesRewritten = *logQueriesRewritten
 
 	// Configure storage backend
 	cfg.StorageConfig.Type = *storageType
@@ -254,6 +258,8 @@ Storage Options:
 Logging:
   --log-level <level>      Log level: debug, info, warn, error (default: info)
   --log-format <format>    Log format: text, json (default: text)
+  --log-queries            Log all SQL queries received
+  --log-queries-rewritten  Log queries after rewriting (before backend execution)
 
 General:
   -h, --help               Show help

@@ -1,4 +1,4 @@
-.PHONY: build test test-all clean install fmt lint bench
+.PHONY: build build-iaul test test-all clean install fmt lint bench
 
 # CGO flags for SQLite with math functions enabled
 export CGO_ENABLED=1
@@ -9,13 +9,21 @@ export CGO_LDFLAGS=-lm
 version-sync:
 	@cp VERSION pkg/version/version.txt
 
-# Build the CLI
+# Build the server
 build: version-sync
 	go build -o aul ./cmd/aul
+
+# Build the interactive client
+build-iaul:
+	cd cmd/iaul && go build -o ../../iaul .
+
+# Build both
+build-all: build build-iaul
 
 # Install globally
 install: version-sync
 	go install ./cmd/aul
+	cd cmd/iaul && go install .
 
 # Run all tests
 test:
@@ -38,7 +46,7 @@ bench-stable:
 
 # Clean build artifacts
 clean:
-	rm -f aul
+	rm -f aul iaul
 	rm -rf jit_cache/
 	rm -f benchmark_results.txt
 
@@ -69,7 +77,9 @@ help:
 	@echo ""
 	@echo "Build & Install:"
 	@echo "  make build            Build the server binary"
-	@echo "  make install          Install globally via go install"
+	@echo "  make build-iaul       Build the interactive client"
+	@echo "  make build-all        Build both aul and iaul"
+	@echo "  make install          Install both globally via go install"
 	@echo "  make clean            Remove build artifacts"
 	@echo ""
 	@echo "Testing:"

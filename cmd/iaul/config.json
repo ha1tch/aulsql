@@ -1,0 +1,26 @@
+{
+  "host": "localhost",
+  "port": 1433,
+  "user": "sa",
+  "password": "test",
+  "database": "master",
+  "encrypt": "disable",
+  "trust_server_cert": true,
+  "app_name": "iaul",
+  "connection_timeout_s": 10,
+  "query_timeout_s": 30,
+  "history_file": "",
+  "max_history": 500,
+  "macros": [
+    {"name": "List tables", "sql": "SELECT * FROM sys.tables WHERE is_ms_shipped = 0"},
+    {"name": "List procedures", "sql": "SELECT * FROM sys.procedures WHERE is_ms_shipped = 0"},
+    {"name": "List schemas", "sql": "SELECT * FROM sys.schemas"},
+    {"name": "List types", "sql": "SELECT * FROM sys.types"},
+    {"name": "List databases", "sql": "SELECT * FROM sys.databases"},
+    {"name": "Server version", "sql": "SELECT @@VERSION"},
+    {"name": "Current database", "sql": "SELECT DB_NAME()"},
+    {"name": "Row count", "sql": "SELECT @@ROWCOUNT"},
+    {"name": "Table columns", "sql": "SELECT c.name, t.name as type, c.max_length, c.is_nullable FROM sys.columns c JOIN sys.types t ON c.system_type_id = t.system_type_id WHERE c.object_id = OBJECT_ID('TABLENAME')"},
+    {"name": "Active connections", "sql": "SELECT * FROM sys.dm_exec_sessions WHERE is_user_process = 1"}
+  ]
+}

@@ -1,0 +1,12 @@
+package postgres
+
+import (
+	"github.com/ha1tch/aul/pkg/log"
+	"github.com/ha1tch/aul/pkg/protocol"
+)
+
+func init() {
+	protocol.RegisterPostgresFactory(func(cfg protocol.ListenerConfig, logger *log.Logger) (protocol.Listener, error) {
+		return NewListener(cfg, logger)
+	})
+}

@@ -59,7 +59,11 @@ aul is a database server that:
 ## Installation
 
 ```bash
+# Install the server
 go install github.com/ha1tch/aul/cmd/aul@latest
+
+# Install the interactive CLI
+go install github.com/ha1tch/aul/cmd/iaul@latest
 ```
 
 Or build from source:
@@ -68,9 +72,21 @@ Or build from source:
 git clone https://github.com/ha1tch/aul.git
 cd aul
 go build -o aul ./cmd/aul
+go build -o iaul ./cmd/iaul
 ```
 
+## Commands
+
+aul provides two commands:
+
+| Command | Description |
+|---------|-------------|
+| `aul` | The database server |
+| `iaul` | Interactive SQL client (like psql for PostgreSQL) |
+
 ## Usage
+
+### aul (Server)
 
 ```bash
 # Start with HTTP API (default)
@@ -88,6 +104,36 @@ aul -d ./my_procedures -w
 # Disable JIT compilation
 aul --jit=false
 ```
+
+### iaul (Interactive Client)
+
+iaul is a modern SQL client with readline support, tab completion, and psql-style commands.
+
+```bash
+# Connect interactively
+iaul --host localhost --user sa --password secret --database mydb
+
+# Execute SQL and exit
+iaul -e "SELECT * FROM users" --format json
+
+# Execute a script file
+iaul -f schema.sql --silent && echo "Schema created"
+
+# Export to CSV
+iaul -e "SELECT * FROM orders" --format csv --quiet > orders.csv
+```
+
+**Features:**
+- Readline support (arrow keys, Ctrl+R history search)
+- Tab completion for SQL keywords, tables, and columns
+- psql-style commands (`\dt`, `\d table`, `\i file`, `\o file`)
+- Multiple output formats (default, ascii, unicode, csv, json)
+- Variable substitution (`:varname`, `$(varname)`)
+- Pager support for large result sets
+- Persistent command history
+- Configurable macros
+
+See [cmd/iaul/README.md](cmd/iaul/README.md) for full documentation.
 
 ## Configuration
 
@@ -278,7 +324,7 @@ E3001: procedure not found: usp_Missing
 |-----------|--------|
 | HTTP REST API | ✓ Working |
 | PostgreSQL wire protocol | ✓ Working (accepts connections, basic handshake) |
-| TDS (SQL Server) protocol | ✓ Working (full query execution cycle) |
+| TDS (SQL Server) protocol | ✓ Working (login, TLS/login-only encryption, queries) |
 | MySQL protocol | Not implemented |
 | gRPC | Not implemented |
 | Procedure loading | ✓ Full AST parsing via tsqlparser |
@@ -298,6 +344,7 @@ Key documents:
 - [002 - Storage and Translation](docs/002-PROCEDURE_STORAGE_AND_TRANSLATION.md) — Hierarchy, tenancy, delegation, ACL design
 - [003 - Development Plan](docs/003-STORED_PROCEDURE_DEVELOPMENT_PLAN.md) — Phased roadmap to v1.0
 - [004 - JIT Architecture](docs/004-JIT_ARCHITECTURE.md) — JIT pipeline design and implementation
+- [SQLite Backend](docs/sqlite-backend.md) — Type mappings, decimal handling, and limitations
 
 ## License
 
@@ -310,3 +357,5 @@ https://github.com/ha1tch/aulsql/blob/main/LICENSE
 Copyright (c) 2026 haitch
 
 h@ual.fi
+
+https://oldbytes.space/@haitchfive

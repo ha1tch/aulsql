@@ -85,6 +85,10 @@ func (sc *SystemCatalog) IsSystemQuery(sql string) bool {
 		strings.Contains(normalized, "sys.partitions") ||
 		strings.Contains(normalized, "sys.allocation_units") ||
 		strings.Contains(normalized, "sys.master_files") ||
+		strings.Contains(normalized, "sys.server_principals") ||
+		strings.Contains(normalized, "sys.dm_exec_sessions") ||
+		strings.Contains(normalized, "sys.dm_exec_connections") ||
+		strings.Contains(normalized, "sys.table_types") ||
 		strings.Contains(normalized, "information_schema.")
 }
 
@@ -148,6 +152,14 @@ func (sc *SystemCatalog) ExecuteSystemQuery(ctx context.Context, db interface{ Q
 		return sc.queryAllocationUnits(ctx, db, sql)
 	case strings.Contains(normalized, "sys.master_files"):
 		return sc.queryMasterFiles(ctx, db, sql)
+	case strings.Contains(normalized, "sys.server_principals"):
+		return sc.queryServerPrincipals(ctx, db, sql)
+	case strings.Contains(normalized, "sys.dm_exec_sessions"):
+		return sc.queryDmExecSessions(ctx, db, sql)
+	case strings.Contains(normalized, "sys.dm_exec_connections"):
+		return sc.queryDmExecConnections(ctx, db, sql)
+	case strings.Contains(normalized, "sys.table_types"):
+		return sc.queryTableTypes(ctx, db, sql)
 	case strings.Contains(normalized, "information_schema.columns"):
 		return sc.queryInformationSchemaColumns(ctx, db, sql)
 	case strings.Contains(normalized, "information_schema.tables"):
@@ -533,6 +545,13 @@ func mapTypeToMaxLength(sqliteType string) int {
 
 // queryIndexes returns sys.indexes data.
 func (sc *SystemCatalog) queryIndexes(ctx context.Context, db interface{ Query(context.Context, string, ...interface{}) ([]runtime.ResultSet, error) }, sql string) ([]runtime.ResultSet, error) {
+	// Get list of tables from SQLite
+	tablesQuery := `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`
+	tablesResult, err := db.Query(ctx, tablesQuery)
+	if err != nil {
+		return nil, err
+	}
+
 	rs := runtime.ResultSet{
 		Columns: []runtime.ColumnInfo{
 			{Name: "object_id", Type: "INT", Ordinal: 0},
@@ -545,7 +564,59 @@ func (sc *SystemCatalog) queryIndexes(ctx context.Context, db interface{ Query(c
 			{Name: "is_unique_constraint", Type: "BIT", Ordinal: 7},
 		},
 	}
-	// Return empty - no indexes defined
+
+	// For each table, add a heap entry (index_id=0) and check for actual indexes
+	if len(tablesResult) > 0 {
+		for _, row := range tablesResult[0].Rows {
+			tableName := row[0].(string)
+			objectID := objectIDForName(tableName)
+
+			// Every table has a heap (index_id=0, type=0)
+			rs.Rows = append(rs.Rows, []interface{}{
+				objectID,   // object_id
+				nil,        // name (heaps have no name)
+				int64(0),   // index_id (0 = heap)
+				int64(0),   // type (0 = heap)
+				"HEAP",     // type_desc
+				int64(0),   // is_unique
+				int64(0),   // is_primary_key
+				int64(0),   // is_unique_constraint
+			})
+
+			// Query SQLite for actual indexes on this table
+			indexQuery := fmt.Sprintf(`SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = '%s' AND name NOT LIKE 'sqlite_%%'`, tableName)
+			indexResult, err := db.Query(ctx, indexQuery)
+			if err == nil && len(indexResult) > 0 {
+				indexID := int64(1)
+				for _, idxRow := range indexResult[0].Rows {
+					indexName := idxRow[0].(string)
+					indexSQL := ""
+					if idxRow[1] != nil {
+						indexSQL = idxRow[1].(string)
+					}
+
+					// Check if unique
+					isUnique := int64(0)
+					if strings.Contains(strings.ToUpper(indexSQL), "UNIQUE") {
+						isUnique = 1
+					}
+
+					rs.Rows = append(rs.Rows, []interface{}{
+						objectID,   // object_id
+						indexName,  // name
+						indexID,    // index_id
+						int64(2),   // type (2 = nonclustered)
+						"NONCLUSTERED", // type_desc
+						isUnique,   // is_unique
+						int64(0),   // is_primary_key
+						int64(0),   // is_unique_constraint
+					})
+					indexID++
+				}
+			}
+		}
+	}
+
 	return []runtime.ResultSet{rs}, nil
 }
 
@@ -880,6 +951,7 @@ func (sc *SystemCatalog) queryAllObjects(ctx context.Context, db interface{ Quer
 		},
 	}
 
+	// Add tables
 	if len(results) > 0 {
 		for _, row := range results[0].Rows {
 			tableName := row[0].(string)
@@ -896,6 +968,28 @@ func (sc *SystemCatalog) queryAllObjects(ctx context.Context, db interface{ Quer
 				int64(0),                   // is_ms_shipped
 				int64(0),                   // is_published
 				int64(0),                   // is_schema_published
+			})
+		}
+	}
+
+	// Add procedures from registry
+	if sc.registry != nil {
+		procs := sc.registry.List()
+		for i, proc := range procs {
+			schemaID := sc.schemaNameToID(proc.Schema)
+			rs.Rows = append(rs.Rows, []interface{}{
+				proc.Name,                     // name
+				int64(10000 + i),              // object_id (synthetic, offset to avoid collision with tables)
+				int64(1),                      // principal_id
+				int64(schemaID),               // schema_id
+				int64(0),                      // parent_object_id
+				"P ",                          // type (stored procedure)
+				"SQL_STORED_PROCEDURE",        // type_desc
+				proc.LoadedAt.Format("2006-01-02 15:04:05"), // create_date
+				proc.LoadedAt.Format("2006-01-02 15:04:05"), // modify_date
+				int64(0),                      // is_ms_shipped
+				int64(0),                      // is_published
+				int64(0),                      // is_schema_published
 			})
 		}
 	}
@@ -1416,5 +1510,77 @@ func (sc *SystemCatalog) queryInformationSchemaEmpty(ctx context.Context, db int
 	rs := runtime.ResultSet{
 		Columns: []runtime.ColumnInfo{},
 	}
+	return []runtime.ResultSet{rs}, nil
+}
+
+// queryServerPrincipals returns sys.server_principals data.
+func (sc *SystemCatalog) queryServerPrincipals(ctx context.Context, db interface{ Query(context.Context, string, ...interface{}) ([]runtime.ResultSet, error) }, sql string) ([]runtime.ResultSet, error) {
+	rs := runtime.ResultSet{
+		Columns: []runtime.ColumnInfo{
+			{Name: "name", Type: "NVARCHAR", Ordinal: 0},
+			{Name: "principal_id", Type: "INT", Ordinal: 1},
+			{Name: "sid", Type: "VARBINARY", Ordinal: 2},
+			{Name: "type", Type: "CHAR", Ordinal: 3},
+			{Name: "type_desc", Type: "NVARCHAR", Ordinal: 4},
+			{Name: "is_disabled", Type: "BIT", Ordinal: 5},
+			{Name: "create_date", Type: "NVARCHAR", Ordinal: 6},
+			{Name: "modify_date", Type: "NVARCHAR", Ordinal: 7},
+			{Name: "default_database_name", Type: "NVARCHAR", Ordinal: 8},
+			{Name: "default_language_name", Type: "NVARCHAR", Ordinal: 9},
+		},
+		Rows: [][]interface{}{
+			{"sa", int64(1), nil, "S", "SQL_LOGIN", int64(0), "2025-01-01", "2025-01-01", "master", "us_english"},
+		},
+	}
+	return []runtime.ResultSet{rs}, nil
+}
+
+// queryDmExecSessions returns sys.dm_exec_sessions data.
+func (sc *SystemCatalog) queryDmExecSessions(ctx context.Context, db interface{ Query(context.Context, string, ...interface{}) ([]runtime.ResultSet, error) }, sql string) ([]runtime.ResultSet, error) {
+	rs := runtime.ResultSet{
+		Columns: []runtime.ColumnInfo{
+			{Name: "session_id", Type: "SMALLINT", Ordinal: 0},
+			{Name: "login_time", Type: "NVARCHAR", Ordinal: 1},
+			{Name: "host_name", Type: "NVARCHAR", Ordinal: 2},
+			{Name: "program_name", Type: "NVARCHAR", Ordinal: 3},
+			{Name: "login_name", Type: "NVARCHAR", Ordinal: 4},
+			{Name: "status", Type: "NVARCHAR", Ordinal: 5},
+			{Name: "database_id", Type: "SMALLINT", Ordinal: 6},
+		},
+		Rows: [][]interface{}{
+			{int64(1), "2025-01-01 00:00:00", "localhost", "aul", "sa", "running", int64(1)},
+		},
+	}
+	return []runtime.ResultSet{rs}, nil
+}
+
+// queryDmExecConnections returns sys.dm_exec_connections data.
+func (sc *SystemCatalog) queryDmExecConnections(ctx context.Context, db interface{ Query(context.Context, string, ...interface{}) ([]runtime.ResultSet, error) }, sql string) ([]runtime.ResultSet, error) {
+	rs := runtime.ResultSet{
+		Columns: []runtime.ColumnInfo{
+			{Name: "session_id", Type: "INT", Ordinal: 0},
+			{Name: "connection_id", Type: "NVARCHAR", Ordinal: 1},
+			{Name: "connect_time", Type: "NVARCHAR", Ordinal: 2},
+			{Name: "client_net_address", Type: "NVARCHAR", Ordinal: 3},
+			{Name: "most_recent_sql_handle", Type: "VARBINARY", Ordinal: 4},
+		},
+		Rows: [][]interface{}{
+			{int64(1), "conn-1", "2025-01-01 00:00:00", "127.0.0.1", nil},
+		},
+	}
+	return []runtime.ResultSet{rs}, nil
+}
+
+// queryTableTypes returns sys.table_types data.
+func (sc *SystemCatalog) queryTableTypes(ctx context.Context, db interface{ Query(context.Context, string, ...interface{}) ([]runtime.ResultSet, error) }, sql string) ([]runtime.ResultSet, error) {
+	rs := runtime.ResultSet{
+		Columns: []runtime.ColumnInfo{
+			{Name: "name", Type: "NVARCHAR", Ordinal: 0},
+			{Name: "system_type_id", Type: "TINYINT", Ordinal: 1},
+			{Name: "user_type_id", Type: "INT", Ordinal: 2},
+			{Name: "type_table_object_id", Type: "INT", Ordinal: 3},
+		},
+	}
+	// Return empty - no user-defined table types
 	return []runtime.ResultSet{rs}, nil
 }

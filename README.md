@@ -349,13 +349,8 @@ Key documents:
 ## License
 
 GPL v3.0
-
-https://github.com/ha1tch/aulsql/blob/main/LICENSE
+https://www.gnu.org/licenses/gpl-3.0.en.html
 
 ## Author
 
 Copyright (c) 2026 haitch
-
-h@ual.fi
-
-https://oldbytes.space/@haitchfive

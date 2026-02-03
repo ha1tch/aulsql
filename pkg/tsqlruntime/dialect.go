@@ -319,23 +319,28 @@ func stripQualifiedTableNames(sql string) string {
 
 	// Handle unbracketed two-part names: schema.table -> table
 	// But preserve sys.* and INFORMATION_SCHEMA.*
-	// IMPORTANT: Only match outside of string literals - check that match is not inside quotes
+	// Also preserve table aliases (short identifiers like o.ID, p.Name)
 	unbrackTwoPart := regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b`)
 	sql = unbrackTwoPart.ReplaceAllStringFunc(sql, func(match string) string {
 		parts := unbrackTwoPart.FindStringSubmatch(match)
 		if len(parts) == 3 {
-			schema := strings.ToLower(parts[1])
+			prefix := strings.ToLower(parts[1])
 			// Don't strip sys.* or INFORMATION_SCHEMA.*
-			if schema == "sys" || schema == "information_schema" {
+			if prefix == "sys" || prefix == "information_schema" {
 				return match
 			}
-			// For dbo and other user schemas, strip the schema prefix
-			if schema == "dbo" {
+			// Don't strip short aliases (1-3 chars) - these are likely table aliases, not schemas
+			// e.g., o.ID, p.Name, tbl.Column should be preserved
+			if len(parts[1]) <= 3 {
+				return match
+			}
+			// For dbo, strip the schema prefix
+			if prefix == "dbo" {
 				return parts[2]
 			}
-			// Leave other schema.table references alone (might be intentional)
-			// Actually, let's strip them too for SQLite compatibility
-			return parts[2]
+			// For longer identifiers that look like schemas, strip them
+			// But be conservative - only strip known schema patterns
+			return match
 		}
 		return match
 	})

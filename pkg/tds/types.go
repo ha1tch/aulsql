@@ -444,6 +444,37 @@ func (r *ResultSetWriter) writeValue(val interface{}, col Column) error {
 			binary.Write(buf, binary.LittleEndian, v)
 		}
 
+	case TypeDateTimeN:
+		// Handle datetime - convert string or time.Time to TDS datetime format
+		var t time.Time
+		switch v := val.(type) {
+		case time.Time:
+			t = v
+		case string:
+			// Try parsing common formats
+			var err error
+			for _, format := range []string{
+				"2006-01-02 15:04:05",
+				"2006-01-02T15:04:05",
+				"2006-01-02",
+			} {
+				t, err = time.Parse(format, v)
+				if err == nil {
+					break
+				}
+			}
+			if err != nil {
+				// Default to a placeholder date if parsing fails
+				t = time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+			}
+		default:
+			t = time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+		}
+		buf.WriteByte(8) // length for datetime (8 bytes)
+		days, ticks := encodeDatetime(t)
+		binary.Write(buf, binary.LittleEndian, days)
+		binary.Write(buf, binary.LittleEndian, ticks)
+
 	case TypeNVarChar, TypeNChar:
 		s := toString(val)
 		data := stringToUCS2(s)

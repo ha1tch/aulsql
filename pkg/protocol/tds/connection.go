@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/ha1tch/aul/pkg/log"
@@ -21,6 +22,7 @@ type Connection struct {
 
 	// Connection state (set during login)
 	user       string
+	tenant     string // Extracted from username if format is "tenant/username"
 	database   string
 	appName    string
 	clientHost string
@@ -199,7 +201,18 @@ func (c *Connection) handshake() error {
 	}
 
 	// Store connection state
-	c.user = login.UserName
+	// Parse tenant from username if format is "tenant/username" or "tenant\username"
+	username := login.UserName
+	tenant := ""
+	if idx := strings.Index(username, "/"); idx > 0 {
+		tenant = username[:idx]
+		username = username[idx+1:]
+	} else if idx := strings.Index(username, "\\"); idx > 0 {
+		tenant = username[:idx]
+		username = username[idx+1:]
+	}
+	c.user = username
+	c.tenant = tenant
 	c.database = login.Database
 	if c.database == "" {
 		c.database = "master" // Default database
@@ -210,6 +223,16 @@ func (c *Connection) handshake() error {
 	c.packetSize = int(login.Header.PacketSize)
 	if c.packetSize < tds.MinPacketSize {
 		c.packetSize = tds.DefaultPacketSize
+	}
+
+	// Log tenant if present
+	if c.tenant != "" {
+		c.logger.Application().Info("tenant login",
+			"spid", c.spid,
+			"tenant", c.tenant,
+			"user", c.user,
+			"database", c.database,
+		)
 	}
 
 	// Update TDS connection state
@@ -813,6 +836,9 @@ func (c *Connection) SetDeadline(t time.Time) error {
 // Properties returns connection properties for tenant identification.
 func (c *Connection) Properties() map[string]string {
 	props := make(map[string]string)
+	if c.tenant != "" {
+		props["tenant"] = c.tenant
+	}
 	if c.user != "" {
 		props["user"] = c.user
 	}
@@ -826,6 +852,17 @@ func (c *Connection) Properties() map[string]string {
 		props["client_host"] = c.clientHost
 	}
 	return props
+}
+
+// Tenant returns the tenant identifier extracted from the username.
+// Returns empty string if no tenant was specified.
+func (c *Connection) Tenant() string {
+	return c.tenant
+}
+
+// User returns the username (without tenant prefix if one was provided).
+func (c *Connection) User() string {
+	return c.user
 }
 
 // ucs2ToString converts UTF-16LE bytes to a Go string.

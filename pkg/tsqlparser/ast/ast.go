@@ -131,10 +131,12 @@ type StringLiteral struct {
 func (sl *StringLiteral) expressionNode()      {}
 func (sl *StringLiteral) TokenLiteral() string { return sl.Token.Literal }
 func (sl *StringLiteral) String() string {
+	// Escape any apostrophes in the value
+	escaped := strings.ReplaceAll(sl.Value, "'", "''")
 	if sl.Unicode {
-		return "N'" + sl.Value + "'"
+		return "N'" + escaped + "'"
 	}
-	return "'" + sl.Value + "'"
+	return "'" + escaped + "'"
 }
 
 // NullLiteral represents a NULL literal.

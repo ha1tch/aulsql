@@ -1,7 +1,7 @@
 # aul Documentation Index
 
-**Version:** 0.6.1  
-**Last updated:** January 2026
+**Version:** 0.6.4  
+**Last updated:** February 2026
 
 ---
 
@@ -20,6 +20,7 @@
 | 009 | [Annotations](009-ANNOTATIONS.md) | Annotation system (`-- @aul:`), isolated table storage | Current |
 | 010 | [Benchmarks](010-BENCHMARKS.md) | Performance benchmarks and comparison methodology | Current |
 | 011 | [System Catalog](011-SYSTEM_CATALOG.md) | SQL Server-compatible system views (sys.tables, etc.) | Current |
+| 012 | [DSBP Protocol](012-DSBP_PROTOCOL.md) | Dual-Socket Binary Protocol for out-of-process procedure execution | Design |
 
 ---
 
@@ -48,6 +49,7 @@ Supporting:
     006-DIALECT_INVENTORY ──► Translation layer reference
     007-TSQL_COMPATIBILITY ──► Test coverage tracking
     005-TDS_IMPLEMENTATION ──► Protocol details
+    012-DSBP_PROTOCOL ──► Out-of-process execution protocol
 ```
 
 ---
@@ -75,6 +77,7 @@ Supporting:
 | Transactions (COMMIT/ROLLBACK) | ✓ Complete | — |
 | Complex stored procedures (DDL/DML) | ✓ Complete | — |
 | Delegation optimisation | Planned | 002 |
+| Out-of-process execution (DSBP) | Design | 012 |
 | PostgreSQL backend | Planned | 003 |
 | ACL hooks | Planned | 002 |
 
@@ -83,10 +86,11 @@ Supporting:
 ## Key Design Decisions
 
 1. **Source of truth:** Procedures stored as files, not in database catalogs
-2. **Execution priority:** Delegated > JIT > Interpreted
+2. **Execution priority:** Delegated > Out-of-Proc (DSBP) > JIT > Interpreted
 3. **Delegation:** Automatic, invisible optimisation owned by aul
 4. **Tenancy:** Hierarchical directories with `_tenant/` overrides
 5. **JIT ABI:** Shared `jit/abi` package for plugin type compatibility
+6. **Out-of-process isolation:** Dual-channel UDS protocol (DSBP) for compiled binaries
 
 ---
 
@@ -96,5 +100,5 @@ When making changes:
 
 1. Update the relevant document
 2. Update status in this index
-3. For new documents, assign next number (e.g., 012-*)
+3. For new documents, assign next number (e.g., 013-*)
 4. Keep version numbers synchronised with aul version

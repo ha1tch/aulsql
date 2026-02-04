@@ -205,8 +205,13 @@ func (h *ConnectionHandler) handleExec(ctx context.Context, req protocol.Request
 		}
 	}
 
+	resultType := protocol.ResultOK
+	if len(execResult.ResultSets) > 0 {
+		resultType = protocol.ResultRows
+	}
+
 	return protocol.Result{
-		Type:         protocol.ResultOK,
+		Type:         resultType,
 		RowsAffected: execResult.RowsAffected,
 		ResultSets:   convertResultSets(execResult.ResultSets),
 		ReturnValue:  execResult.ReturnValue,

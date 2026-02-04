@@ -379,67 +379,100 @@ func executeAndPrintBatch(db *sql.DB, sqlStr string, timeoutSec int) bool {
 	}
 	defer rows.Close()
 
-	// Get columns
-	cols, err := rows.Columns()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%sError getting columns: %v%s\n", colRed, err, colReset)
+	totalRows := 0
+	resultSetNum := 0
+
+	for {
+		resultSetNum++
+
+		// Get columns
+		cols, err := rows.Columns()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%sError getting columns: %v%s\n", colRed, err, colReset)
+			return false
+		}
+
+		if len(cols) == 0 {
+			// No columns in this result set (e.g. from UPDATE/INSERT)
+			if !rows.NextResultSet() {
+				break
+			}
+			continue
+		}
+
+		// Print separator between result sets
+		if resultSetNum > 1 && verbosity >= VerbosityNormal {
+			fmt.Println()
+		}
+
+		// Collect all rows
+		var allRows [][]string
+		for rows.Next() {
+			values := make([]interface{}, len(cols))
+			valuePtrs := make([]interface{}, len(cols))
+			for i := range values {
+				valuePtrs[i] = &values[i]
+			}
+
+			if err := rows.Scan(valuePtrs...); err != nil {
+				fmt.Fprintf(os.Stderr, "%sError scanning row: %v%s\n", colRed, err, colReset)
+				return false
+			}
+
+			row := make([]string, len(cols))
+			for i, v := range values {
+				row[i] = formatValue(v)
+			}
+			allRows = append(allRows, row)
+		}
+
+		if err := rows.Err(); err != nil {
+			fmt.Fprintf(os.Stderr, "%sError: %v%s\n", colRed, err, colReset)
+			return false
+		}
+
+		totalRows += len(allRows)
+
+		// Output based on format (skip if silent with no results)
+		if verbosity > VerbositySilent || len(allRows) > 0 {
+			switch displayFormat {
+			case FormatASCII:
+				printASCIITable(cols, allRows)
+			case FormatUnicode:
+				printUnicodeTable(cols, allRows)
+			case FormatCSV:
+				printCSV(cols, allRows)
+			case FormatJSON:
+				printJSON(cols, allRows)
+			default:
+				printDefaultTable(cols, allRows)
+			}
+		}
+
+		// Advance to next result set
+		if !rows.NextResultSet() {
+			break
+		}
+	}
+
+	// Check for errors from NextResultSet iteration
+	if err := rows.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "%sError: %v%s\n", colRed, err, colReset)
 		return false
 	}
 
-	if len(cols) == 0 {
+	if totalRows == 0 && resultSetNum <= 1 {
 		if verbosity >= VerbosityNormal {
 			fmt.Printf("%sOK (%.2fms)%s\n", colDim, float64(elapsed.Microseconds())/1000, colReset)
 		}
 		return true
 	}
 
-	// Collect all rows
-	var allRows [][]string
-	for rows.Next() {
-		values := make([]interface{}, len(cols))
-		valuePtrs := make([]interface{}, len(cols))
-		for i := range values {
-			valuePtrs[i] = &values[i]
-		}
-
-		if err := rows.Scan(valuePtrs...); err != nil {
-			fmt.Fprintf(os.Stderr, "%sError scanning row: %v%s\n", colRed, err, colReset)
-			return false
-		}
-
-		row := make([]string, len(cols))
-		for i, v := range values {
-			row[i] = formatValue(v)
-		}
-		allRows = append(allRows, row)
-	}
-
-	if err := rows.Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "%sError: %v%s\n", colRed, err, colReset)
-		return false
-	}
-
-	// Output based on format (skip if silent with no results)
-	if verbosity > VerbositySilent || len(allRows) > 0 {
-		switch displayFormat {
-		case FormatASCII:
-			printASCIITable(cols, allRows)
-		case FormatUnicode:
-			printUnicodeTable(cols, allRows)
-		case FormatCSV:
-			printCSV(cols, allRows)
-		case FormatJSON:
-			printJSON(cols, allRows)
-		default:
-			printDefaultTable(cols, allRows)
-		}
-	}
-
 	// Print stats based on verbosity
 	if verbosity >= VerbosityNormal && displayFormat != FormatCSV && displayFormat != FormatJSON {
-		fmt.Printf("\n%s(%d rows, %.2fms)%s\n", colDim, len(allRows), float64(elapsed.Microseconds())/1000, colReset)
+		fmt.Printf("\n%s(%d rows, %.2fms)%s\n", colDim, totalRows, float64(elapsed.Microseconds())/1000, colReset)
 	} else if verbosity >= VerbosityVerbose {
-		fmt.Fprintf(os.Stderr, "%s(%d rows, %.2fms)%s\n", colDim, len(allRows), float64(elapsed.Microseconds())/1000, colReset)
+		fmt.Fprintf(os.Stderr, "%s(%d rows, %.2fms)%s\n", colDim, totalRows, float64(elapsed.Microseconds())/1000, colReset)
 	}
 
 	return true
@@ -1272,14 +1305,96 @@ func executeAndPrint(db *sql.DB, sqlStr string, timeoutSec int) {
 	}
 	defer rows.Close()
 
-	// Get columns
-	cols, err := rows.Columns()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%sError getting columns: %v%s\n", colRed, err, colReset)
+	totalRows := 0
+	resultSetNum := 0
+
+	for {
+		resultSetNum++
+
+		// Get columns
+		cols, err := rows.Columns()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%sError getting columns: %v%s\n", colRed, err, colReset)
+			return
+		}
+
+		if len(cols) == 0 {
+			// No columns in this result set (e.g. from UPDATE/INSERT)
+			if !rows.NextResultSet() {
+				break
+			}
+			continue
+		}
+
+		// Print separator between result sets
+		if resultSetNum > 1 {
+			fmt.Fprintln(out)
+		}
+
+		// Collect all rows
+		var allRows [][]string
+		for rows.Next() {
+			values := make([]interface{}, len(cols))
+			valuePtrs := make([]interface{}, len(cols))
+			for i := range values {
+				valuePtrs[i] = &values[i]
+			}
+
+			if err := rows.Scan(valuePtrs...); err != nil {
+				fmt.Fprintf(os.Stderr, "%sError scanning row: %v%s\n", colRed, err, colReset)
+				return
+			}
+
+			row := make([]string, len(cols))
+			for i, v := range values {
+				row[i] = formatValue(v)
+			}
+			allRows = append(allRows, row)
+		}
+
+		if err := rows.Err(); err != nil {
+			fmt.Fprintf(os.Stderr, "%sError: %v%s\n", colRed, err, colReset)
+			return
+		}
+
+		totalRows += len(allRows)
+
+		// Output based on format (using pager for large results if enabled)
+		outputFunc := func(w io.Writer) {
+			switch displayFormat {
+			case FormatASCII:
+				printASCIITableTo(w, cols, allRows)
+			case FormatUnicode:
+				printUnicodeTableTo(w, cols, allRows)
+			case FormatCSV:
+				printCSVTo(w, cols, allRows)
+			case FormatJSON:
+				printJSONTo(w, cols, allRows)
+			default:
+				printDefaultTableTo(w, cols, allRows)
+			}
+		}
+
+		// Use pager for large output in interactive mode (>25 rows)
+		if usePager && len(allRows) > 25 && outputFile == nil {
+			runWithPager(outputFunc)
+		} else {
+			outputFunc(out)
+		}
+
+		// Advance to next result set
+		if !rows.NextResultSet() {
+			break
+		}
+	}
+
+	// Check for errors from NextResultSet iteration
+	if err := rows.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "%sError: %v%s\n", colRed, err, colReset)
 		return
 	}
 
-	if len(cols) == 0 {
+	if totalRows == 0 && resultSetNum <= 1 {
 		if showTiming {
 			fmt.Fprintf(out, "%sOK (%.2fms)%s\n", colDim, float64(elapsed.Microseconds())/1000, colReset)
 		} else {
@@ -1288,58 +1403,9 @@ func executeAndPrint(db *sql.DB, sqlStr string, timeoutSec int) {
 		return
 	}
 
-	// Collect all rows
-	var allRows [][]string
-	for rows.Next() {
-		values := make([]interface{}, len(cols))
-		valuePtrs := make([]interface{}, len(cols))
-		for i := range values {
-			valuePtrs[i] = &values[i]
-		}
-
-		if err := rows.Scan(valuePtrs...); err != nil {
-			fmt.Fprintf(os.Stderr, "%sError scanning row: %v%s\n", colRed, err, colReset)
-			return
-		}
-
-		row := make([]string, len(cols))
-		for i, v := range values {
-			row[i] = formatValue(v)
-		}
-		allRows = append(allRows, row)
-	}
-
-	if err := rows.Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "%sError: %v%s\n", colRed, err, colReset)
-		return
-	}
-
-	// Output based on format (using pager for large results if enabled)
-	outputFunc := func(w io.Writer) {
-		switch displayFormat {
-		case FormatASCII:
-			printASCIITableTo(w, cols, allRows)
-		case FormatUnicode:
-			printUnicodeTableTo(w, cols, allRows)
-		case FormatCSV:
-			printCSVTo(w, cols, allRows)
-		case FormatJSON:
-			printJSONTo(w, cols, allRows)
-		default:
-			printDefaultTableTo(w, cols, allRows)
-		}
-	}
-
-	// Use pager for large output in interactive mode (>25 rows)
-	if usePager && len(allRows) > 25 && outputFile == nil {
-		runWithPager(outputFunc)
-	} else {
-		outputFunc(out)
-	}
-
 	// Print stats (except for CSV/JSON which should be clean)
 	if showTiming && displayFormat != FormatCSV && displayFormat != FormatJSON {
-		fmt.Fprintf(out, "\n%s(%d rows, %.2fms)%s\n", colDim, len(allRows), float64(elapsed.Microseconds())/1000, colReset)
+		fmt.Fprintf(out, "\n%s(%d rows, %.2fms)%s\n", colDim, totalRows, float64(elapsed.Microseconds())/1000, colReset)
 	}
 }
 

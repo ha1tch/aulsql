@@ -65,6 +65,16 @@ func NewSQLiteStorage(cfg SQLiteConfig) (*SQLiteStorage, error) {
 	dsn := cfg.Path
 	opts := []string{}
 
+	// For in-memory databases, use shared cache mode so all connections
+	// from the pool see the same database. Without this, each connection
+	// in Go's sql.DB pool gets its own independent in-memory database,
+	// causing writes on one connection to be invisible to reads on another.
+	isMemory := dsn == ":memory:" || strings.Contains(dsn, "mode=memory")
+	if isMemory {
+		// Use URI format with shared cache: file::memory:?cache=shared
+		dsn = "file::memory:?cache=shared"
+	}
+
 	if cfg.CacheSize != 0 {
 		opts = append(opts, fmt.Sprintf("_cache_size=%d", cfg.CacheSize))
 	}
@@ -82,7 +92,11 @@ func NewSQLiteStorage(cfg SQLiteConfig) (*SQLiteStorage, error) {
 	opts = append(opts, "_foreign_keys=ON")
 
 	if len(opts) > 0 {
-		dsn = dsn + "?" + strings.Join(opts, "&")
+		sep := "?"
+		if strings.Contains(dsn, "?") {
+			sep = "&"
+		}
+		dsn = dsn + sep + strings.Join(opts, "&")
 	}
 
 	db, err := sql.Open("sqlite3", dsn)
@@ -91,7 +105,11 @@ func NewSQLiteStorage(cfg SQLiteConfig) (*SQLiteStorage, error) {
 	}
 
 	// Configure connection pool
-	if cfg.MaxOpenConns > 0 {
+	if isMemory {
+		// For in-memory databases, constrain to a single connection to avoid
+		// any remaining isolation issues and serialise writes properly.
+		db.SetMaxOpenConns(1)
+	} else if cfg.MaxOpenConns > 0 {
 		db.SetMaxOpenConns(cfg.MaxOpenConns)
 	}
 	if cfg.MaxIdleConns > 0 {

@@ -228,9 +228,18 @@ func (i *interpreter) ExecuteSQL(ctx context.Context, sqlStr string, execCtx *Ex
 		"sql_length", len(sqlStr),
 	)
 
+	// Intercept common client handshake/session queries that tools like
+	// the VS Code mssql extension send on connect. These use T-SQL syntax
+	// (TOP, WITH (NOLOCK), OBJECT_ID, etc.) that our parser doesn't handle,
+	// so we return sensible canned responses.
+	normalizedSQL := strings.ToLower(strings.TrimSpace(sqlStr))
+
+	if result := i.handleClientHandshake(normalizedSQL); result != nil {
+		return result, nil
+	}
+
 	// Check for system catalog queries - these are handled by the storage layer
 	// which intercepts sys.* queries and returns SQL Server-compatible metadata
-	normalizedSQL := strings.ToLower(strings.TrimSpace(sqlStr))
 	if strings.Contains(normalizedSQL, "sys.") ||
 		strings.Contains(normalizedSQL, "information_schema.") {
 		// Route through storage layer which handles system catalog
@@ -427,4 +436,84 @@ func newTenantAwareResolver(registry *procedure.Registry, tenant string) tsqlrun
 		return nil
 	}
 	return &tenantAwareResolver{registry: registry, tenant: tenant}
+}
+
+// handleClientHandshake intercepts common client handshake and session queries
+// that tools (VS Code mssql extension, SSMS, Azure Data Studio, etc.) send on
+// connect. These queries use T-SQL syntax that our parser doesn't fully support
+// (TOP, WITH (NOLOCK), OBJECT_ID(), etc.), so we return canned responses.
+//
+// Returns nil if the query is not a known handshake pattern.
+func (i *interpreter) handleClientHandshake(normalizedSQL string) *ExecResult {
+	// SERVERPROPERTY queries — the mssql extension's primary handshake.
+	// These contain T-SQL syntax our parser doesn't handle (TOP n literal,
+	// WITH (NOLOCK), OBJECT_ID(), N'...' strings).
+	if strings.Contains(normalizedSQL, "serverproperty") {
+		return i.buildServerPropertyResult()
+	}
+
+	// SERVERPROPERTY queries — the mssql extension's primary handshake
+	if strings.Contains(normalizedSQL, "serverproperty") {
+		return i.buildServerPropertyResult()
+	}
+
+	// @@SPID query
+	if strings.Contains(normalizedSQL, "@@spid") {
+		return &ExecResult{
+			ResultSets: []ResultSet{{
+				Columns: []ColumnInfo{{Name: "spid", Type: "int", Ordinal: 0}},
+				Rows:    [][]interface{}{{1}},
+			}},
+		}
+	}
+
+	// @@TRANCOUNT query
+	if strings.Contains(normalizedSQL, "@@trancount") {
+		return &ExecResult{
+			ResultSets: []ResultSet{{
+				Columns: []ColumnInfo{{Name: "trancount", Type: "int", Ordinal: 0}},
+				Rows:    [][]interface{}{{0}},
+			}},
+		}
+	}
+
+	return nil
+}
+
+// buildServerPropertyResult returns a canned response that satisfies the
+// VS Code mssql extension's SERVERPROPERTY handshake query. The extension
+// sends:
+//
+//	SELECT SERVERPROPERTY('EngineEdition'),
+//	       SERVERPROPERTY('productversion'),
+//	       SERVERPROPERTY('productlevel'),
+//	       SERVERPROPERTY('edition'),
+//	       SERVERPROPERTY('MachineName'),
+//	       SERVERPROPERTY('ServerName'),
+//	       (SELECT CASE WHEN EXISTS (...) THEN 1 ELSE 0 END AS SXI_PRESENT)
+//
+// We return values that identify as a SQL Server-compatible engine.
+func (i *interpreter) buildServerPropertyResult() *ExecResult {
+	return &ExecResult{
+		ResultSets: []ResultSet{{
+			Columns: []ColumnInfo{
+				{Name: "EngineEdition", Type: "int", Ordinal: 0},
+				{Name: "productversion", Type: "varchar", Ordinal: 1},
+				{Name: "productlevel", Type: "varchar", Ordinal: 2},
+				{Name: "edition", Type: "varchar", Ordinal: 3},
+				{Name: "MachineName", Type: "varchar", Ordinal: 4},
+				{Name: "ServerName", Type: "varchar", Ordinal: 5},
+				{Name: "SXI_PRESENT", Type: "int", Ordinal: 6},
+			},
+			Rows: [][]interface{}{{
+				3,               // EngineEdition: 3 = Enterprise (on-premises)
+				"16.0.1000.6",   // productversion: SQL Server 2022-ish
+				"RTM",           // productlevel
+				"aul (SQLite)",  // edition
+				"aul",           // MachineName
+				"aul",           // ServerName
+				0,               // SXI_PRESENT: no xml_index_type column
+			}},
+		}},
+	}
 }
